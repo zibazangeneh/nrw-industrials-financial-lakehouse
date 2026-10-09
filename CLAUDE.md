@@ -16,7 +16,7 @@ A financial intelligence lakehouse on real market data for actual NRW target com
 
 ```
 Python script (local or notebook)
-   pulls yfinance / Alpha Vantage / ECB SDW
+   pulls yfinance (prices + fundamentals) / ECB Data Portal
         |
 Unity Catalog Volume  -- raw files land here (CSV/Parquet/JSON)
         |
@@ -32,14 +32,17 @@ Genie / Databricks SQL  -- natural-language BI layer
 
 Replace the manual Python landing step with:
 - ADF trigger -> Databricks job/notebook task for the yfinance pull
-- ADF REST activities for Alpha Vantage and ECB SDW (both are plain REST APIs, no wrapper library needed)
+- ADF REST activity for the ECB Data Portal (plain REST API, no wrapper library needed). Alpha Vantage was dropped (ADR-001)
 - Everything downstream (Bronze/Silver/Gold/Genie) stays the same — ADF only changes how data arrives in the Volume
 
 ## Data sources
 
-- **yfinance** — daily OHLCV price history for target tickers + `^GDAXI` (DAX). No API key, no meaningful rate limit. Unofficial Yahoo wrapper — can break if Yahoo changes something; note this trade-off in the README rather than treating a break as a bug.
-- **Alpha Vantage** — company fundamentals via `INCOME_STATEMENT`, `BALANCE_SHEET`. (`OVERVIEW` turned out to be a **premium** endpoint on the free tier, so it was dropped; static company attributes come from a `ref_company` seed instead.) Free tier: **25 requests/day, 5/minute**: 2 endpoints × 5 companies = 10 calls per pull. Pull weekly, not daily. Requires a free API key, stored in the Databricks secret scope `nrw` (`alphavantage_api_key`) and never hardcoded.
-- **ECB Statistical Data Warehouse (SDW) API** — EUR/USD rate, ECB deposit rate. Free, no key.
+> Decided in `docs/decisions/ADR-001-data-sources.md` after testing every source against the real companies (2026-10-09).
+
+- **yfinance** (pinned `1.7.0`) — daily OHLCV price history for `BAS.DE`, `BAYN.DE`, `ENR.DE`, `EOAN.DE`, `RWE.DE` + `^GDAXI` (DAX), backfilled from **2018-01-01** (Siemens Energy only exists since 2020-09-29). **Also the fundamentals source**: quarterly + annual income statement and balance sheet, pulled **weekly** as a full snapshot. Yahoo only serves 5–6 quarters, so history builds up in the SCD2 satellite rather than being backfilled. Fundamentals land in **long format** (`company_id, statement, frequency, period_end, metric, value`). No API key. Unofficial Yahoo wrapper — can break if Yahoo changes something, and it's now a single point of failure for prices and fundamentals; note this trade-off in the README rather than treating a break as a bug.
+- **Alpha Vantage — dropped.** `OVERVIEW` is premium, and `INCOME_STATEMENT`/`BALANCE_SHEET` return empty for all 5 companies (XETRA and US ADR symbols); its fundamentals only cover US reporters. The key stays in secret scope `nrw` (`alphavantage_api_key`) as the pattern for future keys.
+- **ECB Data Portal API** (successor of the SDW API, `data-api.ecb.europa.eu`) — EUR/USD `EXR/D.USD.EUR.SP00.A` (business days), deposit facility rate `FM/D.U2.EUR.4F.KR.DFR.LEV` (calendar days). Free, no key. Different calendars → as-of join to trading days in Gold.
+- **Fiscal calendars differ:** Siemens Energy's fiscal year ends 30 September; the others are calendar-year. Key fundamentals on `period_end`, not on a fiscal-quarter label.
 
 ## Data model
 
@@ -70,7 +73,7 @@ Use `EXPECT ... ON VIOLATION DROP ROW` for the fields above (bad rows shouldn't 
 
 ```
 nrw-industrials-financial-lakehouse/
-├── ingestion/               # yfinance / Alpha Vantage / ECB pull scripts (Phase 1: run manually/locally)
+├── ingestion/               # yfinance / ECB pull notebooks (Phase 1: run in Databricks, write straight to the Volume)
 ├── pipelines/               # Lakeflow Declarative Pipelines (Python/SQL)
 │   ├── bronze/
 │   ├── silver_data_vault/
@@ -86,7 +89,7 @@ nrw-industrials-financial-lakehouse/
 
 **Phase 1 — Databricks only (target: fast, a few focused sessions)**
 1. Set up Databricks Free Edition workspace: catalog, schema, and a Unity Catalog Volume for raw landing
-2. Write `ingestion/` scripts: yfinance historical pull, Alpha Vantage fundamentals pull, ECB SDW pull — land output as files in the Volume
+2. Write `ingestion/` notebooks: yfinance price pull, yfinance fundamentals pull, ECB pull — land output as files in the Volume
 3. Bronze: Lakeflow Declarative Pipeline using `read_files()`/Auto Loader off the Volume, with expectations from the section above
 4. Silver: Data Vault hubs/links/satellites, MERGE-based satellite loading for fundamentals
 5. Gold: fact/dim star schema
@@ -96,7 +99,7 @@ nrw-industrials-financial-lakehouse/
 
 **Phase 2 — Add ADF orchestration**
 - ADF pipeline to trigger the Databricks ingestion job on a schedule
-- ADF REST activities for Alpha Vantage / ECB SDW
+- ADF REST activity for the ECB Data Portal
 - Document the ADF-triggers-Databricks pattern explicitly (common real enterprise setup)
 
 ## Environment and conventions
@@ -104,7 +107,7 @@ nrw-industrials-financial-lakehouse/
 - Windows PowerShell; venv activation is `.\venv\Scripts\Activate.ps1`
 - Databricks Free Edition (serverless-only)
 - **Important platform note**: earlier projects worked around Free Edition blocking `spark.conf.set()` on raw/classic clusters (see Smart Grid Stream Week 2 workaround). Lakeflow Declarative Pipelines sidestep this entirely — serverless-native, always Unity-Catalog-governed. This project should not need that workaround; if a cluster config error shows up, check whether the pipeline is accidentally running on classic compute.
-- No hardcoded secrets anywhere — all credentials (Alpha Vantage key) via `os.environ.get()`
+- No hardcoded secrets anywhere — credentials live in the Databricks secret scope `nrw` and are read via `dbutils.secrets.get()` (or `os.environ.get()` for local runs)
 - CLI-first development; UI/dashboard layers added afterward
 - Document workarounds and platform constraints as architectural decisions, not TODOs to hide
 
@@ -116,9 +119,14 @@ nrw-industrials-financial-lakehouse/
 
 ## Open questions / next steps for Claude Code
 
-- [ ] Confirm current yfinance install/behavior before relying on it
-- [ ] Get free Alpha Vantage API key, store as env var
-- [ ] Create Unity Catalog catalog/schema/volume for this project
+- [x] Confirm current yfinance install/behavior before relying on it (ADR-001)
+- [x] Get free Alpha Vantage API key → stored in secret scope; Alpha Vantage then dropped (ADR-001)
+- [x] Create Unity Catalog catalog/schema/volume for this project (`nrw_fin`, NRW-003)
 - [ ] Scaffold `ingestion/` pull scripts
 - [ ] Scaffold Lakeflow Declarative Pipeline for Bronze with `read_files()`/Auto Loader + expectations
 - [ ] Design the exact MERGE logic for `sat_company_fundamentals`
+
+## Session workflow
+
+- Work tracked in `TICKETS.md`; decisions in `docs/decisions/ADR-*.md`
+- Ingestion runs inside Databricks (serverless has outbound internet, ADR-000); the CLI is only used for secrets and, later, Asset Bundles

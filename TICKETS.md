@@ -10,15 +10,15 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
 | ID | Title | Epic | Size | Depends on |
 |---|---|---|---|---|
 | NRW-001 | Scaffold repo and local environment | 0 Setup | S | — |
-| NRW-002 | Databricks CLI auth + Free Edition capability check | 0 Setup | S | 001 |
+| NRW-002 | Free Edition capability check | 0 Setup | S | 001 |
 | NRW-003 | Create Unity Catalog catalog / schemas / Volume | 0 Setup | S | 002 |
-| NRW-004 | Alpha Vantage API key as env var | 0 Setup | S | 001 |
+| NRW-004 | Alpha Vantage API key as a Databricks secret | 0 Setup | S | 001 |
 | NRW-005 | Spike: verify data-source coverage | 1 Ingestion | M | 001, 004 |
-| NRW-006 | Shared ingestion helpers (Volume upload, naming, logging) | 1 Ingestion | M | 003 |
+| NRW-006 | Shared ingestion helpers (Volume paths, naming, config) | 1 Ingestion | M | 003 |
 | NRW-007 | yfinance daily price pull | 1 Ingestion | M | 005, 006 |
-| NRW-008 | Alpha Vantage fundamentals pull | 1 Ingestion | M | 005, 006 |
+| NRW-008 | yfinance fundamentals pull (weekly snapshot) | 1 Ingestion | M | 005, 006 |
 | NRW-009 | ECB Data Portal macro pull | 1 Ingestion | S | 005, 006 |
-| NRW-010 | Ingestion runner CLI + first backfill | 1 Ingestion | S | 007, 008, 009 |
+| NRW-010 | Ingestion runner notebook + first backfill | 1 Ingestion | S | 007, 008, 009 |
 | NRW-011 | Source inspection with `read_files()` | 2 Bronze | S | 010 |
 | NRW-012 | Bronze Lakeflow Declarative Pipeline + expectations | 2 Bronze | L | 011 |
 | NRW-013 | Data-quality monitoring from the pipeline event log | 2 Bronze | M | 012 |
@@ -37,7 +37,7 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
 | NRW-026 | Spike: ADF ↔ Databricks Free Edition connectivity | 7 ADF (Phase 2) | M | 025 |
 | NRW-027 | Move yfinance pull into a Databricks job | 7 ADF (Phase 2) | M | 026 |
 | NRW-028 | ADF pipeline + schedule trigger for the Databricks job | 7 ADF (Phase 2) | M | 027 |
-| NRW-029 | ADF REST activities for Alpha Vantage + ECB | 7 ADF (Phase 2) | L | 026 |
+| NRW-029 | ADF REST activity for ECB | 7 ADF (Phase 2) | M | 026 |
 | NRW-030 | Commit ADF definitions + document the pattern | 7 ADF (Phase 2) | S | 028, 029 |
 
 ---
@@ -90,57 +90,54 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ---
 
-## Epic 1 — Ingestion (Phase 1: run locally, land in the Volume)
+## Epic 1 — Ingestion (Phase 1: Databricks notebooks write straight to the Volume, see ADR-000)
 
-### NRW-005 · Spike: verify data-source coverage `[ ]` · M
+### NRW-005 · Spike: verify data-source coverage `[x]` · M
 **Goal:** Resolve the "confirm yfinance behaviour" open question and catch source gaps **before** writing pipelines.
-- [ ] **yfinance**: pin the installed version; confirm daily history for `BAS.DE`, `BAYN.DE`, `ENR.DE`, `EOAN.DE`, `RWE.DE`, `^GDAXI`. Note: Siemens Energy (`ENR.DE`) only has history from Sept 2020, so pick a backfill start date that accounts for that
-- [ ] **Alpha Vantage**: test `INCOME_STATEMENT` / `BALANCE_SHEET` (`OVERVIEW` is premium, see NRW-004) for the XETRA symbols **and** the US ADR symbols (`BASFY`, `BAYRY`, `SMNEY`, `EONGY`, `RWEOY`). ⚠️ Risk: AV fundamentals coverage for non-US issuers is patchy and may come back empty
-- [ ] If AV coverage has gaps: evaluate the fallback `yfinance.Ticker(...).quarterly_income_stmt` / `quarterly_balance_sheet`
-- [ ] **ECB**: the old SDW API has moved to the ECB Data Portal (`https://data-api.ecb.europa.eu/service/data/...`). Confirm the series keys:
-  - EUR/USD reference rate: `EXR/D.USD.EUR.SP00.A`
-  - Deposit facility rate: `FM/D.U2.EUR.4F.KR.DFR.LEV` (check it)
-- [ ] Record the decisions in `docs/decisions/ADR-001-data-sources.md`, including the yfinance "unofficial wrapper" trade-off
+- [x] **yfinance** 1.7.0: daily history for all 6 tickers, 0 null closes, all EUR. Siemens Energy from 2020-09-29
+- [x] **Alpha Vantage**: `OVERVIEW` is premium; `INCOME_STATEMENT` returned **empty for all 10 symbols** (XETRA + US ADR) → **dropped**
+- [x] **yfinance fundamentals** fallback: quarterly income + balance sheet for all 5 companies, 5–6 quarters → **adopted**
+- [x] **ECB Data Portal**: both series keys confirmed (EUR/USD = business days, deposit rate = calendar days)
+- [x] Decisions recorded in `docs/decisions/ADR-001-data-sources.md` (backfill from 2018-01-01, long-format fundamentals, as-of join for macro)
 
-**Done when:** The ADR lists the exact ticker/symbol/series key for each source, with a fallback decision for fundamentals.
+**Done when:** The ADR lists the exact ticker/symbol/series key for each source, with a fallback decision for fundamentals. ✅
 
-### NRW-006 · Shared ingestion helpers `[ ]` · M
-**Goal:** One place for landing files, so swapping in ADF later only changes this layer.
+### NRW-006 · Shared ingestion helpers `[ ]` · S
+**Goal:** One place for paths, naming and config, so swapping in ADF later only changes this layer.
+- [ ] `ingestion/config.py`: companies (`company_id`, name, yfinance ticker, fiscal year end), DAX, ECB series keys, `BACKFILL_START = "2018-01-01"`, Volume base path `/Volumes/nrw_fin/landing/raw`
 - [ ] `ingestion/common.py`:
-  - `upload_to_volume(local_path, volume_subpath)` using `databricks-sdk` `WorkspaceClient().files.upload(...)`
-  - File naming: `<source>_<entity>_<YYYYMMDD>T<HHMMSS>Z.<ext>`, so files are append-only and never overwritten (Auto Loader friendly)
-  - Logging setup, config loaded from env (`NRW_VOLUME_PATH`, profile)
-- [ ] `ingestion/config.py`: company ↔ ticker ↔ AV symbol mapping from NRW-005
+  - `landing_path(entity, ext)` → `<base>/<entity>/<entity>_<YYYYMMDD>T<HHMMSS>Z.<ext>`, so files are append-only and never overwritten (Auto Loader friendly)
+  - `write_parquet(df, entity)`: adds `source` + `ingested_at`, creates folders, writes to the Volume
+- [ ] Imported from notebooks in the same workspace folder (`from common import ...`)
 
-**Done when:** A dummy file uploads and shows up in the Volume.
+**Done when:** A test DataFrame lands as Parquet in the Volume through the helper.
 
 ### NRW-007 · yfinance daily price pull `[ ]` · M
-- [ ] `ingestion/pull_prices.py` with `--mode backfill|incremental` and `--start` (default from the ADR)
+- [ ] Notebook `ingestion/pull_prices` with widgets `mode` = `backfill|incremental`, `start` (default `2018-01-01`)
 - [ ] Normalise columns: `trade_date, ticker, open, high, low, close_price, adj_close, volume`, plus `source='yfinance'` and `ingested_at`
-- [ ] Write Parquet per run → `/prices/`
-- [ ] Incremental mode: pull the last N days (overlap is fine; Silver dedupes)
-- [ ] Handle a failure on one ticker without killing the whole run; log per-ticker row counts
+- [ ] Write one Parquet file per run → `/prices/`
+- [ ] Incremental mode: pull the last 10 days (overlap is fine; Silver dedupes)
+- [ ] One ticker failing doesn't kill the run, but the notebook **fails at the end** if any ticker returned nothing; log row counts per ticker
 
-**Done when:** The backfill lands one or more Parquet files with all 6 tickers.
+**Done when:** The backfill lands a Parquet file with all 6 tickers.
 
-### NRW-008 · Alpha Vantage fundamentals pull `[ ]` · M
-- [ ] `ingestion/pull_fundamentals.py`: 3 endpoints × 5 companies = 15 calls (fits the 25/day limit)
-- [ ] Rate limiting: ≥ 12 s between calls (5/min), and a hard stop at a configurable daily budget
-- [ ] ⚠️ AV returns **HTTP 200 with a `Note` / `Information` key** when throttled or when the key is invalid. Detect this and fail loudly instead of landing junk
-- [ ] Land the raw JSON as-is (one file per symbol per endpoint) → `/fundamentals/<endpoint>/`; Bronze does the parsing
-- [ ] If NRW-005 chose the yfinance fallback for some companies, implement that path here too and tag it with `source`
+### NRW-008 · yfinance fundamentals pull (weekly snapshot) `[ ]` · M
+- [ ] Notebook `ingestion/pull_fundamentals`: for the 5 companies, `quarterly_income_stmt`, `income_stmt` (annual), `quarterly_balance_sheet`, `balance_sheet` (annual)
+- [ ] Reshape to **long format**: `company_id, ticker, statement, frequency, period_end, metric, value, currency`
+- [ ] Land Parquet → `/fundamentals/income_statement/`, `/fundamentals/balance_sheet/` (full snapshot each run; SCD2 in Silver keeps history)
+- [ ] Fail loudly if a company returns an empty statement
 
-**Done when:** All 5 companies have fundamentals files landed, and a throttled response is rejected.
+**Done when:** All 5 companies × 2 statements × 2 frequencies are landed.
 
 ### NRW-009 · ECB Data Portal macro pull `[ ]` · S
-- [ ] `ingestion/pull_ecb.py`: `?format=csvdata&startPeriod=...` for both series
-- [ ] Land the CSV → `/macro/eurusd/`, `/macro/deposit_rate/`
+- [ ] Notebook `ingestion/pull_ecb`: `?format=csvdata&startPeriod=2018-01-01` for both series
+- [ ] Land the CSV as-is → `/macro/eurusd/`, `/macro/deposit_rate/`
 
 **Done when:** Both series land with history covering the price backfill range.
 
-### NRW-010 · Ingestion runner CLI + first backfill `[ ]` · S
-- [ ] `python -m ingestion.run --source prices|fundamentals|ecb|all --mode backfill|incremental`
-- [ ] Run the full backfill once and record row/file counts in the PR/commit message
+### NRW-010 · Ingestion runner notebook + first backfill `[ ]` · S
+- [ ] Notebook `ingestion/run_ingestion` with widgets `source` = `prices|fundamentals|ecb|all`, `mode` = `backfill|incremental`; runs the pull notebooks (becomes the job task in NRW-027)
+- [ ] Run the full backfill once; record row/file counts in the commit message
 
 **Done when:** The Volume holds a full historical landing for every source.
 
@@ -150,9 +147,9 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ### NRW-011 · Source inspection with `read_files()` `[ ]` · S
 **Goal:** Base the Bronze expectations on what the data actually looks like.
-- [ ] `explorations/01_inspect_landing.sql`: `read_files()` on each Volume folder (`format => 'parquet' | 'json' | 'csv'`, `multiline => true` for AV JSON)
+- [ ] `explorations/02_inspect_landing.sql`: `read_files()` on each Volume folder (`format => 'parquet' | 'csv'`)
 - [ ] Null counts per key column; % of rows per ticker using `round(count(*) * 100.0 / sum(count(*)) over(), 1)`
-- [ ] Check the AV JSON shape: `annualReports` / `quarterlyReports` arrays, string-typed numbers, `"None"` literals
+- [ ] Fundamentals: which metrics exist per company, how many NULL `value`s (Yahoo leaves gaps in older periods)
 
 **Done when:** Expectation list confirmed or adjusted; any surprises noted in ADR-001.
 
@@ -160,7 +157,7 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [ ] `pipelines/bronze/bronze.sql` (or `.py`); **serverless**, target catalog/schema `bronze`
 - [ ] Streaming tables via `STREAM read_files(...)` (Auto Loader):
   - `bronze_prices`: `CONSTRAINT ... EXPECT (close_price IS NOT NULL) ON VIOLATION DROP ROW`, same for `trade_date` and `ticker`
-  - `bronze_fundamentals_income`, `bronze_fundamentals_balance`: explode `quarterlyReports` (+ `annualReports`) into one row per period; `fiscal_period IS NOT NULL`, `company_id IS NOT NULL` → DROP ROW
+  - `bronze_fundamentals_income`, `bronze_fundamentals_balance` (long format): `period_end IS NOT NULL` (= fiscal period), `company_id IS NOT NULL`, `metric IS NOT NULL` → DROP ROW; `value IS NOT NULL` → warn only
   - `bronze_macro_ecb`: `obs_date`, `series_key`, `obs_value` NOT NULL
 - [ ] Every table: `_metadata.file_path AS source_file`, `_metadata.file_modification_time`, `current_timestamp() AS bronze_loaded_at`, keep `_rescued_data`
 - [ ] Create the pipeline (UI or CLI for now; formalised in NRW-023) and run it
@@ -310,10 +307,9 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
 
 **Done when:** A scheduled run executes unattended and is visible in ADF monitoring.
 
-### NRW-029 · ADF REST activities for Alpha Vantage + ECB `[ ]` · L
-- [ ] Alpha Vantage: ForEach over companies × endpoints, sequential with a Wait of ≥ 12 s, API key from Key Vault, **weekly** trigger
-- [ ] Throttle detection: an If Condition on the `Note` / `Information` key in the response
-- [ ] ECB: REST/HTTP source → CSV, daily trigger
+### NRW-029 · ADF REST activity for ECB `[ ]` · M
+> Alpha Vantage was dropped in ADR-001, so this only covers the ECB. yfinance stays a Databricks job (NRW-027) because it needs the Python library.
+- [ ] ECB Data Portal: REST/HTTP source → CSV, daily trigger
 - [ ] Landing per the ADR-003 pattern, using the **same paths and file naming** as Phase 1 so nothing downstream changes
 
 **Done when:** Bronze picks up ADF-landed files with no code change.
