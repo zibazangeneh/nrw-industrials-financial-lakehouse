@@ -1,0 +1,25 @@
+# Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Secrets / local config
+.env
+*.env.local
+
+# Databricks
+.databricks/
+
+# Local data (raw files belong in the UC Volume, not git)
+data/
+*.parquet
+*.csv
+!pipelines/**/*.csv
+
+# IDE / OS
+.idea/
+.DS_Store
+Thumbs.db
