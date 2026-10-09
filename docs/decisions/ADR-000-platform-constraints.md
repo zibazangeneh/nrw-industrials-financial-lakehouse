@@ -16,7 +16,7 @@ The project runs on Databricks Free Edition (serverless-only). Two things had to
 | Outbound HTTP to Yahoo Finance (`query1.finance.yahoo.com`) | ✅ reachable (HTTP 200) | `setup/00_platform_checks.py` on serverless |
 | Outbound HTTP to ECB Data Portal (`data-api.ecb.europa.eu`) | ✅ reachable (HTTP 200) | same |
 | Outbound HTTP to Alpha Vantage (`www.alphavantage.co`) | ✅ reachable (HTTP 200) | same |
-| `CREATE CATALOG` allowed | _pending — NRW-003_ | `setup/00_create_uc_objects.sql` |
+| `CREATE CATALOG` allowed | ✅ yes — `nrw_fin` created with schemas `landing`, `bronze`, `silver`, `gold` and Volume `landing.raw` | `setup/00_create_uc_objects.sql` (NRW-003) |
 
 ## Decision
 

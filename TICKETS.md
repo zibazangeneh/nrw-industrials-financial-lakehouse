@@ -58,21 +58,21 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
 **Goal:** Find out early which platform limits will affect later tickets.
 - [x] Workspace project folder created in the UI (mirrors this repo)
 - [x] Check: does serverless notebook compute have **outbound internet**? → **Yes**: Yahoo, ECB and Alpha Vantage all reachable (`setup/00_platform_checks.py`)
-- [ ] Check: can you create a **new catalog** on Free Edition? → checked as the first statement of NRW-003
+- [x] Check: can you create a **new catalog** on Free Edition? → **Yes** (NRW-003)
 - [x] Findings recorded in `docs/decisions/ADR-000-platform-constraints.md`
 - [ ] ~~CLI login~~ → deferred to NRW-023 (Asset Bundles). Because the sources are reachable, Phase 1 ingestion runs inside Databricks and doesn't need the CLI
 
 **Done when:** The checks are recorded in the ADR.
 
-### NRW-003 · Create Unity Catalog catalog / schemas / Volume `[ ]` · S
+### NRW-003 · Create Unity Catalog catalog / schemas / Volume `[x]` · S
 **Goal:** Governed landing zone + layer schemas.
-- [ ] `setup/00_create_uc_objects.sql` (idempotent `CREATE ... IF NOT EXISTS`):
+- [x] `setup/00_create_uc_objects.sql` (idempotent `CREATE ... IF NOT EXISTS`):
   - catalog `nrw_fin` (or the workspace catalog if NRW-002 says you can't create one)
   - schemas `landing`, `bronze`, `silver`, `gold`
   - managed Volume `landing.raw`
-- [ ] Folder convention in the Volume:
+- [x] Folder convention in the Volume:
   `/prices/`, `/fundamentals/overview/`, `/fundamentals/income_statement/`, `/fundamentals/balance_sheet/`, `/macro/eurusd/`, `/macro/deposit_rate/`
-- [ ] Add `COMMENT`s on the catalog, schemas and Volume (governance story)
+- [x] Add `COMMENT`s on the catalog, schemas and Volume (governance story)
 
 **Done when:** The Volume `landing.raw` is visible in Catalog Explorer. Subfolders are created by the ingestion notebooks on first write.
 
