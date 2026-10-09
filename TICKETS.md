@@ -54,15 +54,15 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
 
 **Done when:** `pip install -r requirements.txt` succeeds and the first commit is made.
 
-### NRW-002 · Databricks CLI auth + Free Edition capability check `[ ]` · S
-**Goal:** Make sure the CLI works and find out early which platform limits will affect later tickets.
-- [ ] Install Databricks CLI, `databricks auth login --host <workspace-url>` → named profile
-- [ ] `databricks current-user me` works
-- [ ] Check: can you create a **new catalog** on Free Edition, or do you have to use the default workspace catalog?
-- [ ] Check: does serverless notebook compute have **outbound internet** (needed later for NRW-027)? Try a `requests.get` to Yahoo and the ECB from a notebook
-- [ ] Write findings into `docs/decisions/ADR-000-platform-constraints.md`
+### NRW-002 · Free Edition capability check `[x]` · S
+**Goal:** Find out early which platform limits will affect later tickets.
+- [x] Workspace project folder created in the UI (mirrors this repo)
+- [x] Check: does serverless notebook compute have **outbound internet**? → **Yes**: Yahoo, ECB and Alpha Vantage all reachable (`setup/00_platform_checks.py`)
+- [ ] Check: can you create a **new catalog** on Free Edition? → checked as the first statement of NRW-003
+- [x] Findings recorded in `docs/decisions/ADR-000-platform-constraints.md`
+- [ ] ~~CLI login~~ → deferred to NRW-023 (Asset Bundles). Because the sources are reachable, Phase 1 ingestion runs inside Databricks and doesn't need the CLI
 
-**Done when:** The CLI is authenticated and the two checks are recorded in the ADR.
+**Done when:** The checks are recorded in the ADR.
 
 ### NRW-003 · Create Unity Catalog catalog / schemas / Volume `[ ]` · S
 **Goal:** Governed landing zone + layer schemas.
@@ -74,7 +74,7 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
   `/prices/`, `/fundamentals/overview/`, `/fundamentals/income_statement/`, `/fundamentals/balance_sheet/`, `/macro/eurusd/`, `/macro/deposit_rate/`
 - [ ] Add `COMMENT`s on the catalog, schemas and Volume (governance story)
 
-**Done when:** `databricks fs ls dbfs:/Volumes/<catalog>/landing/raw/` works.
+**Done when:** The Volume `landing.raw` is visible in Catalog Explorer. Subfolders are created by the ingestion notebooks on first write.
 
 ### NRW-004 · Alpha Vantage API key as env var `[ ]` · S
 - [ ] Get the free key from alphavantage.co
