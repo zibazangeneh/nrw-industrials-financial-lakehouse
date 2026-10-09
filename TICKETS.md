@@ -102,15 +102,17 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
 
 **Done when:** The ADR lists the exact ticker/symbol/series key for each source, with a fallback decision for fundamentals. ✅
 
-### NRW-006 · Shared ingestion helpers `[ ]` · S
+### NRW-006 · Shared ingestion helpers `[x]` · S
 **Goal:** One place for paths, naming and config, so swapping in ADF later only changes this layer.
-- [ ] `ingestion/config.py`: companies (`company_id`, name, yfinance ticker, fiscal year end), DAX, ECB series keys, `BACKFILL_START = "2018-01-01"`, Volume base path `/Volumes/nrw_fin/landing/raw`
-- [ ] `ingestion/common.py`:
+- [x] `ingestion/config.py`: companies (`company_id`, name, yfinance ticker, fiscal year end), DAX, ECB series keys, `BACKFILL_START = "2018-01-01"`, Volume base path `/Volumes/nrw_fin/landing/raw`
+- [x] `ingestion/common.py`:
   - `landing_path(entity, ext)` → `<base>/<entity>/<entity>_<YYYYMMDD>T<HHMMSS>Z.<ext>`, so files are append-only and never overwritten (Auto Loader friendly)
   - `write_parquet(df, entity)`: adds `source` + `ingested_at`, creates folders, writes to the Volume
-- [ ] Imported from notebooks in the same workspace folder (`from common import ...`)
+- [x] Imported from notebooks in the same workspace folder (`from common import ...`)
 
-**Done when:** A test DataFrame lands as Parquet in the Volume through the helper.
+**Done when:** A test DataFrame lands as Parquet in the Volume through the helper. ✅ (`ingestion/00_test_helpers.py`: Spark reads it back as `trade_date: date`, `ingested_at: timestamp`)
+
+**Learned:** Spark/Auto Loader treat files starting with `_` or `.` as hidden, so landing names must never start with them. Notebooks importing workspace files need `%autoreload 2` (or a Python restart) to pick up edits.
 
 ### NRW-007 · yfinance daily price pull `[ ]` · M
 - [ ] Notebook `ingestion/pull_prices` with widgets `mode` = `backfill|incremental`, `start` (default `2018-01-01`)
