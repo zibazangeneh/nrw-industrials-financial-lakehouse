@@ -71,17 +71,22 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
   - schemas `landing`, `bronze`, `silver`, `gold`
   - managed Volume `landing.raw`
 - [x] Folder convention in the Volume:
-  `/prices/`, `/fundamentals/overview/`, `/fundamentals/income_statement/`, `/fundamentals/balance_sheet/`, `/macro/eurusd/`, `/macro/deposit_rate/`
+  `/prices/`, `/fundamentals/income_statement/`, `/fundamentals/balance_sheet/`, `/macro/eurusd/`, `/macro/deposit_rate/`
 - [x] Add `COMMENT`s on the catalog, schemas and Volume (governance story)
 
 **Done when:** The Volume `landing.raw` is visible in Catalog Explorer. Subfolders are created by the ingestion notebooks on first write.
 
-### NRW-004 · Alpha Vantage API key as env var `[ ]` · S
-- [ ] Get the free key from alphavantage.co
-- [ ] Store it in local `.env` (gitignored) as `ALPHAVANTAGE_API_KEY`; code reads it via `os.environ.get()` only
-- [ ] Optional now, needed in Phase 2: Databricks secret scope `nrw` with key `alphavantage_api_key`
+### NRW-004 · Alpha Vantage API key as a Databricks secret `[x]` · S
+> Changed after ADR-000: ingestion runs inside Databricks, so the key lives in a Databricks secret scope rather than a local `.env`.
+- [x] Get the free key from alphavantage.co
+- [x] One-time CLI step (Databricks has no UI for secrets): `databricks auth login`, then create scope `nrw` and put secret `alphavantage_api_key`. The CLI prompts for the value, so it never lands in a file, notebook or shell history
+- [x] Code reads it only via `dbutils.secrets.get("nrw", "alphavantage_api_key")` and never prints it
+- [ ] Optional, for local runs: `.env` with `ALPHAVANTAGE_API_KEY` (gitignored)
 
-**Done when:** `python -c "import os; from dotenv import load_dotenv; load_dotenv(); print(bool(os.environ.get('ALPHAVANTAGE_API_KEY')))"` prints `True`.
+**Done when:** `setup/01_check_secret.py` on serverless shows the secret as `[REDACTED]` and makes one successful Alpha Vantage call.
+
+**Outcome:** key works. `OVERVIEW` is **premium** on the free tier; `INCOME_STATEMENT`, `BALANCE_SHEET`, `GLOBAL_QUOTE` and `TIME_SERIES_DAILY` are free (`explorations/00_alphavantage_access.py`). → `OVERVIEW` dropped; static company attributes come from the `ref_company` seed (NRW-015).
+
 
 ---
 
@@ -90,7 +95,7 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
 ### NRW-005 · Spike: verify data-source coverage `[ ]` · M
 **Goal:** Resolve the "confirm yfinance behaviour" open question and catch source gaps **before** writing pipelines.
 - [ ] **yfinance**: pin the installed version; confirm daily history for `BAS.DE`, `BAYN.DE`, `ENR.DE`, `EOAN.DE`, `RWE.DE`, `^GDAXI`. Note: Siemens Energy (`ENR.DE`) only has history from Sept 2020, so pick a backfill start date that accounts for that
-- [ ] **Alpha Vantage**: test `OVERVIEW` / `INCOME_STATEMENT` / `BALANCE_SHEET` for the XETRA symbols **and** the US ADR/OTC symbols (`BASFY`, `BAYRY`, `SMEGF`, `EONGY`, `RWEOY`). ⚠️ Risk: AV fundamentals coverage for non-US issuers is patchy and may come back empty
+- [ ] **Alpha Vantage**: test `INCOME_STATEMENT` / `BALANCE_SHEET` (`OVERVIEW` is premium, see NRW-004) for the XETRA symbols **and** the US ADR symbols (`BASFY`, `BAYRY`, `SMNEY`, `EONGY`, `RWEOY`). ⚠️ Risk: AV fundamentals coverage for non-US issuers is patchy and may come back empty
 - [ ] If AV coverage has gaps: evaluate the fallback `yfinance.Ticker(...).quarterly_income_stmt` / `quarterly_balance_sheet`
 - [ ] **ECB**: the old SDW API has moved to the ECB Data Portal (`https://data-api.ecb.europa.eu/service/data/...`). Confirm the series keys:
   - EUR/USD reference rate: `EXR/D.USD.EUR.SP00.A`
@@ -156,7 +161,6 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done
 - [ ] Streaming tables via `STREAM read_files(...)` (Auto Loader):
   - `bronze_prices`: `CONSTRAINT ... EXPECT (close_price IS NOT NULL) ON VIOLATION DROP ROW`, same for `trade_date` and `ticker`
   - `bronze_fundamentals_income`, `bronze_fundamentals_balance`: explode `quarterlyReports` (+ `annualReports`) into one row per period; `fiscal_period IS NOT NULL`, `company_id IS NOT NULL` → DROP ROW
-  - `bronze_fundamentals_overview`
   - `bronze_macro_ecb`: `obs_date`, `series_key`, `obs_value` NOT NULL
 - [ ] Every table: `_metadata.file_path AS source_file`, `_metadata.file_modification_time`, `current_timestamp() AS bronze_loaded_at`, keep `_rescued_data`
 - [ ] Create the pipeline (UI or CLI for now; formalised in NRW-023) and run it

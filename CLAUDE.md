@@ -38,7 +38,7 @@ Replace the manual Python landing step with:
 ## Data sources
 
 - **yfinance** — daily OHLCV price history for target tickers + `^GDAXI` (DAX). No API key, no meaningful rate limit. Unofficial Yahoo wrapper — can break if Yahoo changes something; note this trade-off in the README rather than treating a break as a bug.
-- **Alpha Vantage** — company fundamentals via `OVERVIEW`, `INCOME_STATEMENT`, `BALANCE_SHEET`. Free tier: **25 requests/day, 5/minute**. Pull weekly, not daily. Requires a free API key (env var, never hardcoded).
+- **Alpha Vantage** — company fundamentals via `INCOME_STATEMENT`, `BALANCE_SHEET`. (`OVERVIEW` turned out to be a **premium** endpoint on the free tier, so it was dropped; static company attributes come from a `ref_company` seed instead.) Free tier: **25 requests/day, 5/minute**: 2 endpoints × 5 companies = 10 calls per pull. Pull weekly, not daily. Requires a free API key, stored in the Databricks secret scope `nrw` (`alphavantage_api_key`) and never hardcoded.
 - **ECB Statistical Data Warehouse (SDW) API** — EUR/USD rate, ECB deposit rate. Free, no key.
 
 ## Data model
